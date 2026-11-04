@@ -25,8 +25,8 @@ function h(tag, props = {}, ...kids) {
 function fresh() {
   return {
     phase: 'setup',
-    setup: { n: 2, players: PALETTE.map((c, i) => ({ name: 'User' + (i + 1), color: c })) },
-    players: [], cur: 0,
+    setup: { n: 2, secs: 30, players: PALETTE.map((c, i) => ({ name: 'User' + (i + 1), color: c })) },
+    players: [], cur: 0, turnNo: 0, turnSecs: 0, turnEnd: null,
     cells: {},        // "x,y" -> {c:'A', p:playerIndex}
     marks: [],        // {a:[x,y], b:[x,y], p, word}
     words: [],        // claimed words (uppercase)
@@ -87,6 +87,7 @@ function setTint() { document.documentElement.style.setProperty('--pc', S.phase 
 /* ================= SETUP ================= */
 function renderSetup() {
   $('#count').textContent = S.setup.n;
+  $('#secs').value = S.setup.secs ?? 30;
   const list = $('#plist'); list.innerHTML = '';
   for (let i = 0; i < S.setup.n; i++) {
     const p = S.setup.players[i];
@@ -101,9 +102,11 @@ function renderSetup() {
 }
 $('#plus').onclick = () => { if (S.setup.n < 8) { S.setup.n++; save(); renderSetup(); } };
 $('#minus').onclick = () => { if (S.setup.n > 2) { S.setup.n--; save(); renderSetup(); } };
+$('#secs').addEventListener('input', (e) => { S.setup.secs = e.target.value; save(); });
 $('#start').onclick = () => {
+  const secs = Math.max(0, Math.min(600, parseInt(S.setup.secs, 10) || 0));
   S.players = S.setup.players.slice(0, S.setup.n).map((p, i) => ({ name: p.name.trim() || 'User' + (i + 1), color: p.color, score: 0 }));
-  Object.assign(S, { phase: 'play', cur: 0, cells: {}, marks: [], words: [], placed: null, view: { x: null, y: null, size: window.innerWidth < 520 ? 48 : 56 } });
+  Object.assign(S, { phase: 'play', cur: 0, turnNo: 0, turnSecs: secs, turnEnd: secs ? Date.now() + secs * 1000 : null, cells: {}, marks: [], words: [], placed: null, view: { x: null, y: null, size: window.innerWidth < 520 ? 48 : 56 } });
   sel = null; markMode = false; markSel = null;
   save(); show();
 };
@@ -222,7 +225,9 @@ board.addEventListener('pointermove', (e) => {
     if (drag.moved) { S.view.x = drag.ox + dx; S.view.y = drag.oy + dy; applyView(); }
   } else {
     const c = cellAt(e), a = drag.c, ddx = c[0] - a[0], ddy = c[1] - a[1];
-    const b = Math.abs(ddx) >= Math.abs(ddy) ? [c[0], a[1]] : [a[0], c[1]]; // lock to a straight line
+    let b = Math.abs(ddx) >= Math.abs(ddy) ? [c[0], a[1]] : [a[0], c[1]]; // lock to a straight line
+    drag.reversed = b[0] < a[0] || b[1] < a[1];                              // only left→right / top→bottom
+    if (drag.reversed) b = a;
     if (!markSel || markSel.b[0] !== b[0] || markSel.b[1] !== b[1]) { markSel = { a, b }; renderBoard(); renderDock(); }
   }
 });
@@ -231,7 +236,7 @@ const endDrag = (e) => {
   const d = drag; drag = null; board.classList.remove('dragging');
   if (d.mode === 'pan') {
     if (d.moved) save(); else tapCell(d.c);
-  }
+  } else if (d.reversed) toast('Words read left → right or top → bottom', 'err');
 };
 board.addEventListener('pointerup', endDrag);
 board.addEventListener('pointercancel', endDrag);
@@ -323,21 +328,31 @@ async function doneMark() {
   const w = wordFrom(markSel);
   if (w.includes('?')) return fail('Every box in the line needs a letter');
   if (w.length < MIN_LEN) return fail(`Select at least ${MIN_LEN} letters`);
-  if (S.words.includes(w)) return fail(`"${w}" has already been taken`);
+  if (S.words.includes(w)) return penalize(`"${w}" was already taken`);
   busy = true; renderDock();
+  const turn = S.turnNo;
   let ok;
   try { ok = await isWord(w); }
-  catch (e) { busy = false; renderDock(); return fail('Could not reach the dictionary'); }
+  catch (e) { if (S.turnNo !== turn) return; busy = false; renderDock(); return fail('Could not reach the dictionary'); }
+  if (S.turnNo !== turn) return;               // time ran out while checking
   busy = false;
-  if (!ok) { renderDock(); return fail(`"${w}" is not a valid word`); }
+  if (!ok) return penalize(`"${w}" is not a valid word`);
   const p = cur(), m = { a: markSel.a, b: markSel.b, p: S.cur, word: w };
   S.words.push(w); S.marks.push(m); p.score += w.length;
   floatText('+' + w.length, m.b[0], m.b[1], p.color);
   toast(`${p.name} claimed ${w} (+${w.length})`, 'ok');
   nextTurn(true);
 }
+function penalize(msg) {
+  const p = cur(), end = markSel.b;
+  p.score -= 1;
+  floatText('−1', end[0], end[1], '#c0392b');
+  toast(`${msg} · ${p.name} −1 point`, 'err');
+  nextTurn(true);
+}
 function nextTurn(silent) {
   S.cur = (S.cur + 1) % S.players.length;
+  S.turnNo++; S.turnEnd = S.turnSecs ? Date.now() + S.turnSecs * 1000 : null;
   S.placed = null; sel = null; markMode = false; markSel = null; busy = false;
   save(); renderAll();
   if (!silent) toast(`${cur().name}'s turn`);
@@ -347,10 +362,12 @@ function nextTurn(silent) {
 function renderDock() {
   const p = cur(); dock.innerHTML = '';
   const hint = sel ? 'Pick a letter for this box'
-    : markMode ? 'Drag from the first to the last letter'
+    : markMode ? 'Drag left → right or top → bottom'
     : S.placed ? 'Letter placed · mark a word or end turn' : 'Tap an empty box to place a letter';
   dock.append(h('div', { class: 'dtop' }, h('span', { class: 'dot' }),
-    h('div', { class: 'grow' }, h('b', {}, `${p.name}'s turn`), h('small', {}, hint))));
+    h('div', { class: 'grow' }, h('b', {}, `${p.name}'s turn`), h('small', {}, hint)),
+    S.turnSecs ? h('span', { class: 'timer', id: 'timer' }) : null));
+  tick();
 
   if (sel) {
     const rows = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
@@ -374,6 +391,16 @@ function renderDock() {
       h('button', { class: 'btn ghost', onclick: () => nextTurn() }, 'End turn')));
   }
 }
+
+/* ---- turn timer ---- */
+function tick() {
+  if (S.phase !== 'play' || !S.turnEnd) return;
+  const left = Math.ceil((S.turnEnd - Date.now()) / 1000);
+  if (left <= 0) { toast(`Time's up! ${cur().name}'s turn ended`, 'err'); return nextTurn(true); }
+  const t = $('#timer');
+  if (t) { t.textContent = left + 's'; t.classList.toggle('low', left <= 5); }
+}
+setInterval(tick, 250);
 
 /* ---- menu ---- */
 $('#menu').onclick = () => {

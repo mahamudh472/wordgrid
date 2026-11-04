@@ -29,7 +29,12 @@
 
     <div id="plist" class="plist"></div>
 
-    <button id="start" class="btn primary wide">Start match</button>
+    <div class="row between timer-row">
+      <label class="lbl" for="secs">Time per turn <small>0 = no limit</small></label>
+      <div class="secbox"><input id="secs" type="number" inputmode="numeric" min="0" max="600" step="5"><span>sec</span></div>
+    </div>
+
+    <button id="start"class="btn primary wide">Start match</button>
   </div>
 </main>
 

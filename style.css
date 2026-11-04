@@ -71,6 +71,20 @@ button:disabled { opacity: .45; cursor: default; }
 .swatch input { position: absolute; inset: -8px; width: 70px; height: 70px; border: 0; padding: 0; cursor: pointer; opacity: 0; }
 .swatch i { position: absolute; inset: 0; background: var(--c); }
 
+.timer-row { margin-bottom: 20px; }
+.lbl small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+.secbox { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.secbox input {
+  width: 76px; padding: 10px 12px; border-radius: 11px; border: 1.5px solid var(--line); background: #fbfbf9;
+  font: inherit; font-size: 15px; text-align: center; outline: none; user-select: text; -webkit-user-select: text;
+}
+.secbox input:focus { border-color: var(--ink); }
+.timer {
+  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px; padding: 6px 11px; border-radius: 99px;
+  background: color-mix(in srgb, var(--pc) 16%, #fff); transition: background .3s, color .3s;
+}
+.timer.low { background: #c0392b; color: #fff; animation: pulse 1s ease-in-out infinite; }
+
 /* ---------- board ---------- */
 .board {
   position: absolute; inset: 0; touch-action: none; cursor: grab; overflow: hidden;
