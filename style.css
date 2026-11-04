@@ -71,6 +71,11 @@ button:disabled { opacity: .45; cursor: default; }
 .swatch input { position: absolute; inset: -8px; width: 70px; height: 70px; border: 0; padding: 0; cursor: pointer; opacity: 0; }
 .swatch i { position: absolute; inset: 0; background: var(--c); }
 
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: rgba(35, 37, 43, .06); margin-bottom: 18px; }
+.seg button { padding: 9px 10px; border-radius: 9px; font-weight: 600; font-size: 14px; color: var(--muted); transition: background .2s, color .2s, box-shadow .2s; }
+.seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 4px rgba(0, 0, 0, .12); }
+.seg.small { margin: 0; }
+#levelRow { margin-bottom: 18px; }
 .timer-row { margin-bottom: 20px; }
 .lbl small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
 .secbox { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }

@@ -18,7 +18,18 @@
     <h1>Wordgrid</h1>
     <p class="sub">Build words on an endless grid. Claim each word once.</p>
 
-    <div class="row between">
+    <div class="seg" id="modeSeg">
+      <button data-mode="multi">Multiplayer</button><button data-mode="bot">vs Bot</button>
+    </div>
+
+    <div class="row between" id="levelRow" hidden>
+      <label class="lbl">Bot level</label>
+      <div class="seg small" id="lvlSeg">
+        <button data-level="easy">Easy</button><button data-level="medium">Medium</button><button data-level="hard">Hard</button>
+      </div>
+    </div>
+
+    <div class="row between" id="playersRow">
       <label class="lbl">Players</label>
       <div class="stepper">
         <button id="minus" aria-label="Fewer players">−</button>

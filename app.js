@@ -26,7 +26,7 @@ function h(tag, props = {}, ...kids) {
 function fresh() {
   return {
     phase: 'setup',
-    setup: { n: 2, secs: 30, players: PALETTE.map((c, i) => ({ name: 'User' + (i + 1), color: c })) },
+    setup: { mode: 'multi', level: 'medium', bot: { name: 'Bot', color: PALETTE[1] }, n: 2, secs: 30, players: PALETTE.map((c, i) => ({ name: 'User' + (i + 1), color: c })) },
     players: [], cur: 0, turnNo: 0, turnSecs: 0, turnEnd: null,
     cells: {},        // "x,y" -> {c:'A', p:playerIndex}
     marks: [],        // {a:[x,y], b:[x,y], p, word}
@@ -38,7 +38,7 @@ function fresh() {
   };
 }
 function load() {
-  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.phase) return Object.assign(fresh(), s); } catch (e) { }
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.phase) { const f = Object.assign(fresh(), s); f.setup = Object.assign(fresh().setup, s.setup); return f; } } catch (e) { }
   return fresh();
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } }
@@ -78,6 +78,7 @@ function badge() {
 /* ---------------- helpers ---------------- */
 const k = (x, y) => x + ',' + y;
 const cur = () => S.players[S.cur];
+const isBot = () => S.phase === 'play' && !!(cur() && cur().bot);
 let toastT;
 function toast(msg, type = '') {
   const t = $('#toast');
@@ -88,13 +89,19 @@ function setTint() { document.documentElement.style.setProperty('--pc', S.phase 
 
 /* ================= SETUP ================= */
 function renderSetup() {
+  const bot = S.setup.mode === 'bot';
+  document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === S.setup.mode));
+  document.querySelectorAll('#lvlSeg button').forEach((b) => b.classList.toggle('on', b.dataset.level === S.setup.level));
+  $('#playersRow').hidden = bot; $('#levelRow').hidden = !bot;
   $('#count').textContent = S.setup.n;
   $('#secs').value = S.setup.secs ?? 30;
   const list = $('#plist'); list.innerHTML = '';
-  for (let i = 0; i < S.setup.n; i++) {
-    const p = S.setup.players[i];
+  const count = bot ? 2 : S.setup.n;
+  for (let i = 0; i < count; i++) {
+    const isBotRow = bot && i === 1;
+    const p = isBotRow ? S.setup.bot : S.setup.players[i];
     const row = h('div', { class: 'prow', style: `--c:${p.color};animation-delay:${i * 40}ms` });
-    const inp = h('input', { type: 'text', value: p.name, maxlength: 16, placeholder: 'User' + (i + 1), 'aria-label': 'Player ' + (i + 1) + ' name' });
+    const inp = h('input', { type: 'text', value: p.name, maxlength: 16, placeholder: isBotRow ? 'Bot' : 'User' + (i + 1), 'aria-label': 'Player ' + (i + 1) + ' name' });
     inp.addEventListener('input', () => { p.name = inp.value; save(); });
     const col = h('input', { type: 'color', value: p.color, 'aria-label': 'Player ' + (i + 1) + ' color' });
     col.addEventListener('input', () => { p.color = col.value; row.style.setProperty('--c', col.value); save(); });
@@ -102,12 +109,18 @@ function renderSetup() {
     list.append(row);
   }
 }
+document.querySelectorAll('#modeSeg button').forEach((b) => (b.onclick = () => { S.setup.mode = b.dataset.mode; save(); renderSetup(); }));
+document.querySelectorAll('#lvlSeg button').forEach((b) => (b.onclick = () => { S.setup.level = b.dataset.level; save(); renderSetup(); }));
 $('#plus').onclick = () => { if (S.setup.n < 8) { S.setup.n++; save(); renderSetup(); } };
 $('#minus').onclick = () => { if (S.setup.n > 2) { S.setup.n--; save(); renderSetup(); } };
 $('#secs').addEventListener('input', (e) => { S.setup.secs = e.target.value; save(); });
 $('#start').onclick = () => {
   const secs = Math.max(0, Math.min(600, parseInt(S.setup.secs, 10) || 0));
-  S.players = S.setup.players.slice(0, S.setup.n).map((p, i) => ({ name: p.name.trim() || 'User' + (i + 1), color: p.color, score: 0 }));
+  if (S.setup.mode === 'bot') {
+    const me = S.setup.players[0], bt = S.setup.bot;
+    S.players = [{ name: me.name.trim() || 'User1', color: me.color, score: 0 }, { name: bt.name.trim() || 'Bot', color: bt.color, score: 0, bot: true }];
+  } else S.players = S.setup.players.slice(0, S.setup.n).map((p, i) => ({ name: p.name.trim() || 'User' + (i + 1), color: p.color, score: 0 }));
+  S.level = S.setup.level;
   Object.assign(S, { phase: 'play', locked: false, cur: 0, turnNo: 0, turnSecs: secs, turnEnd: secs ? Date.now() + secs * 1000 : null, cells: {}, marks: [], words: [], placed: null, view: { x: null, y: null, size: window.innerWidth < 520 ? 48 : 56 } });
   sel = null; markMode = false; markSel = null;
   save(); show();
@@ -123,7 +136,7 @@ function show() {
   $('#game').hidden = S.phase !== 'play';
   setTint();
   if (S.phase === 'setup') renderSetup();
-  else { loadDict(); initView(); renderAll(); }
+  else { loadDict(); initView(); renderAll(); if (isBot()) botTurn(); }
 }
 function initView() {
   const v = S.view;
@@ -192,7 +205,7 @@ function renderBoard() {
     pos(cursorEl, sel.x, sel.y);
   } else if (cursorEl) { cursorEl.remove(); cursorEl = null; }
   // preview
-  if (markMode && markSel) {
+  if ((markMode || isBot()) && markSel) {
     if (!previewEl) { previewEl = h('div', { class: 'mark preview' }); world.append(previewEl); }
     previewEl.style.cssText = lineRect(markSel.a, markSel.b) + `;--c:${cur().color}`;
   } else if (previewEl) { previewEl.remove(); previewEl = null; }
@@ -215,7 +228,7 @@ board.addEventListener('pointerdown', (e) => {
   if (e.button > 0) return;
   board.setPointerCapture(e.pointerId);
   const c = cellAt(e);
-  const onLetter = !!S.cells[k(c[0], c[1])];
+  const onLetter = !!S.cells[k(c[0], c[1])] && !isBot();
   drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: S.view.x, oy: S.view.y, c, moved: false, mode: markMode && onLetter ? 'mark' : 'pan' };
   if (drag.mode === 'mark') { markSel = { a: c, b: c }; renderBoard(); renderDock(); }
 });
@@ -245,7 +258,7 @@ board.addEventListener('pointercancel', endDrag);
 board.addEventListener('wheel', (e) => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX, e.clientY); }, { passive: false });
 
 function tapCell([x, y]) {
-  if (markMode) return;
+  if (markMode || isBot()) return;
   const key = k(x, y), cell = S.cells[key];
   if (S.locked) { if (!cell) toast('Your letter is locked after marking a word', 'err'); return; }
   if (cell && key !== S.placed) return;       // can only edit this turn's own letter
@@ -301,7 +314,7 @@ function moveSel(dx, dy) {
   renderBoard(); renderDock(); ensureVisible();
 }
 document.addEventListener('keydown', (e) => {
-  if (S.phase !== 'play' || e.ctrlKey || e.metaKey || e.altKey || !$('#sheet').hidden) return;
+  if (S.phase !== 'play' || isBot() || e.ctrlKey || e.metaKey || e.altKey || !$('#sheet').hidden) return;
   if (/^[a-zA-Z]$/.test(e.key) && sel) { placeLetter(e.key); e.preventDefault(); }
   else if (e.key === 'Backspace' || e.key === 'Delete') removeLetter();
   else if (e.key === 'Escape') { sel = null; if (markMode) cancelMark(); else { renderBoard(); renderDock(); } }
@@ -320,14 +333,15 @@ function pathCells(m) {
 }
 const wordFrom = (m) => pathCells(m).map(([x, y]) => (S.cells[k(x, y)] || { c: '?' }).c).join('');
 
-function startMark() { markMode = true; markSel = null; sel = null; renderBoard(); renderDock(); }
+function startMark() {
+  if (isBot()) return; markMode = true; markSel = null; sel = null; renderBoard(); renderDock(); }
 function cancelMark() { markMode = false; markSel = null; busy = false; renderBoard(); renderDock(); }
 function fail(msg) {
   toast(msg, 'err');
   if (previewEl) { previewEl.classList.remove('shake'); void previewEl.offsetWidth; previewEl.classList.add('shake'); }
 }
 async function doneMark() {
-  if (busy || !markSel) return;
+  if (busy || !markSel || isBot()) return;
   const w = wordFrom(markSel);
   if (w.includes('?')) return fail('Every box in the line needs a letter');
   if (w.length < MIN_LEN) return fail(`Select at least ${MIN_LEN} letters`);
@@ -340,10 +354,13 @@ async function doneMark() {
   if (S.turnNo !== turn) return;               // time ran out while checking
   busy = false;
   if (!ok) return penalize(`"${w}" is not a valid word`);
-  const p = cur(), m = { a: markSel.a, b: markSel.b, p: S.cur, word: w };
+  claim(w, markSel.a, markSel.b);
+}
+function claim(w, a, b) {
+  const p = cur(), m = { a, b, p: S.cur, word: w };
   S.words.push(w); S.marks.push(m); p.score += w.length;
-  floatText('+' + w.length, m.b[0], m.b[1], p.color);
-  toast(`${p.name} claimed ${w} (+${w.length})${S.turnEnd ? ' · +5s' : ''}`, 'ok');
+  floatText('+' + w.length, b[0], b[1], p.color);
+  toast(`${p.name} claimed ${w} (+${w.length})${S.turnEnd ? ' · +' + BONUS_SECS + 's' : ''}`, 'ok');
   if (S.turnEnd) S.turnEnd += BONUS_SECS * 1000;   // reward: extra time, turn continues
   S.locked = true; markMode = false; markSel = null;
   save(); renderAll();
@@ -357,23 +374,25 @@ function penalize(msg) {
 }
 function nextTurn(silent) {
   S.cur = (S.cur + 1) % S.players.length;
-  S.turnNo++; S.locked = false; S.turnEnd = S.turnSecs ? Date.now() + S.turnSecs * 1000 : null;
+  S.turnNo++; S.locked = false; S.turnEnd = S.turnSecs && !cur().bot ? Date.now() + S.turnSecs * 1000 : null;
   S.placed = null; sel = null; markMode = false; markSel = null; busy = false;
   save(); renderAll();
   if (!silent) toast(`${cur().name}'s turn`);
+  if (isBot()) botTurn();
 }
 
 /* ---- dock ---- */
 function renderDock() {
   const p = cur(); dock.innerHTML = '';
-  const hint = sel ? 'Pick a letter for this box'
+  const hint = isBot() ? 'Thinking…' : sel ? 'Pick a letter for this box'
     : markMode ? 'Drag left → right or top → bottom'
     : S.locked ? 'Letter locked · mark more words or end turn'
     : S.placed ? 'Letter placed · mark a word or end turn' : 'Tap an empty box to place a letter';
   dock.append(h('div', { class: 'dtop' }, h('span', { class: 'dot' }),
     h('div', { class: 'grow' }, h('b', {}, `${p.name}'s turn`), h('small', {}, hint)),
-    S.turnSecs ? h('span', { class: 'timer', id: 'timer' }) : null));
+    S.turnEnd ? h('span', { class: 'timer', id: 'timer' }) : null));
   tick();
+  if (isBot()) return;
 
   if (sel) {
     const rows = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
@@ -396,6 +415,89 @@ function renderDock() {
       h('button', { class: 'btn accent', onclick: startMark }, 'Mark word'),
       h('button', { class: 'btn ghost', onclick: () => nextTurn() }, 'End turn')));
   }
+}
+
+/* ---- bot ---- */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const LEVELS = {            // min/max word length, how many top placements to pick from, words marked per turn
+  easy:   { min: 3, max: 4,  pool: 999, words: 1 },
+  medium: { min: 3, max: 6,  pool: 6,   words: 2 },
+  hard:   { min: 2, max: 99, pool: 1,   words: 99 },
+};
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+// Try every empty box next to a letter with every A–Z; collect unclaimed dictionary words
+// (left→right / top→bottom substrings) that run through the new letter.
+function botFindMove() {
+  const lv = LEVELS[S.level] || LEVELS.medium, used = new Set(S.words), cells = S.cells;
+  const empties = new Set(), found = [];
+  for (const key of Object.keys(cells)) {
+    const [x, y] = key.split(',').map(Number);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!cells[k(x + dx, y + dy)]) empties.add(k(x + dx, y + dy));
+  }
+  for (const ek of empties) {
+    const [ex, ey] = ek.split(',').map(Number);
+    for (const L of LETTERS) {
+      const get = (x, y) => (x === ex && y === ey ? L : (cells[k(x, y)] || {}).c);
+      const words = new Map();
+      for (const [dx, dy] of [[1, 0], [0, 1]]) {
+        let sx = ex, sy = ey;
+        while (get(sx - dx, sy - dy)) { sx -= dx; sy -= dy; }
+        let run = '', ei = 0, x = sx, y = sy;
+        while (get(x, y)) { if (x === ex && y === ey) ei = run.length; run += get(x, y); x += dx; y += dy; }
+        if (run.length < 2) continue;
+        for (let i = 0; i <= ei; i++) for (let j = Math.max(ei, i + lv.min - 1); j < run.length && j - i + 1 <= lv.max; j++) {
+          const w = run.slice(i, j + 1);
+          if (!used.has(w) && !words.has(w) && dict.has(w.toLowerCase()))
+            words.set(w, { w, a: [sx + dx * i, sy + dy * i], b: [sx + dx * j, sy + dy * j] });
+        }
+      }
+      if (words.size) {
+        const list = [...words.values()].sort((p, q) => q.w.length - p.w.length || Math.random() - .5);
+        found.push({ x: ex, y: ey, L, words: list, total: list.reduce((n, q) => n + q.w.length, 0) });
+      }
+    }
+  }
+  if (!found.length) return null;
+  found.sort((p, q) => q.total - p.total || Math.random() - .5);
+  const pick = found[Math.floor(Math.random() * Math.min(lv.pool, found.length))];
+  pick.words = pick.words.slice(0, lv.words);
+  return pick;
+}
+function panIntoView(x, y) {
+  const v = S.view, sx = v.x + x * v.size, sy = v.y + y * v.size, m = v.size * 1.5;
+  if (sx > m && sx < board.clientWidth - m && sy > m + 40 && sy < board.clientHeight - dock.offsetHeight - m) return;
+  v.x = board.clientWidth / 2 - (x + .5) * v.size; v.y = (board.clientHeight - 120) / 2 - (y + .5) * v.size;
+  world.style.transition = 'transform .5s cubic-bezier(.2,.8,.2,1)'; applyView();
+  setTimeout(() => (world.style.transition = ''), 550); save();
+}
+let botRunning = false;
+async function botTurn() {
+  if (botRunning) return;
+  botRunning = true;
+  const turn = S.turnNo, alive = () => S.phase === 'play' && S.turnNo === turn && isBot();
+  const end = (msg) => { botRunning = false; if (msg) toast(msg); if (alive()) nextTurn(true); };
+  try {
+    await sleep(900); if (!alive()) return end();
+    if (S.placed) return end();                       // resumed mid-turn after a reload
+    if (!dict) await loadDict();
+    if (!alive()) return end();
+    if (!dict) { toast('Bot needs the dictionary to play. Passing', 'err'); await sleep(1500); return end(); }
+    const mv = Object.keys(S.cells).length ? botFindMove() : { x: 0, y: 0, L: 'AEIORSTN'[Math.floor(Math.random() * 8)], words: [] };
+    if (!mv) { await sleep(500); return end(`${cur().name} couldn't find a word and passed`); }
+    panIntoView(mv.x, mv.y);
+    await sleep(500); if (!alive()) return end();
+    const key = k(mv.x, mv.y);
+    S.cells[key] = { c: mv.L, p: S.cur }; S.placed = key; save(); renderBoard();
+    for (const q of mv.words) {
+      await sleep(900); if (!alive()) return end();
+      markSel = { a: q.a, b: q.b }; renderBoard();
+      await sleep(1000); if (!alive()) return end();
+      claim(q.w, q.a, q.b);
+    }
+    await sleep(1100);
+    end();
+  } catch (e) { end(); }
 }
 
 /* ---- turn timer ---- */
