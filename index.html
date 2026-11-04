@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#f6f5f1">
+<title>Wordgrid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- SETUP -->
+<main id="setup" class="screen" hidden>
+  <div class="card setup-card">
+    <h1>Wordgrid</h1>
+    <p class="sub">Build words on an endless grid. Claim each word once.</p>
+
+    <div class="row between">
+      <label class="lbl">Players</label>
+      <div class="stepper">
+        <button id="minus" aria-label="Fewer players">−</button>
+        <span id="count">2</span>
+        <button id="plus" aria-label="More players">+</button>
+      </div>
+    </div>
+
+    <div id="plist" class="plist"></div>
+
+    <button id="start" class="btn primary wide">Start match</button>
+  </div>
+</main>
+
+<!-- GAME -->
+<section id="game" class="screen" hidden>
+  <div id="board" class="board">
+    <div id="world" class="world"></div>
+  </div>
+
+  <header class="topbar">
+    <div class="tools">
+      <button class="icon" id="menu" aria-label="Menu">☰</button>
+      <button class="icon" id="zoomOut" aria-label="Zoom out">−</button>
+      <button class="icon" id="zoomIn" aria-label="Zoom in">+</button>
+      <button class="icon" id="recenter" aria-label="Recenter">◎</button>
+      <span id="dictBadge" class="badge" hidden></span>
+    </div>
+    <button id="score" class="score" aria-label="Toggle scoreboard view"></button>
+  </header>
+
+  <div id="dock" class="dock"></div>
+</section>
+
+<!-- MENU SHEET -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-bg"></div>
+  <div class="card sheet-card">
+    <div class="row between"><h2>Words played</h2><button class="icon" id="sheetClose" aria-label="Close">✕</button></div>
+    <div id="wordsList" class="words"></div>
+    <button id="newGame" class="btn ghost wide">New game</button>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
