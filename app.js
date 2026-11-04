@@ -31,6 +31,7 @@ function fresh() {
     cells: {},        // "x,y" -> {c:'A', p:playerIndex}
     marks: [],        // {a:[x,y], b:[x,y], p, word}
     words: [],        // claimed words (uppercase)
+    locked: false,     // true once a word was scored this turn: letter can no longer change
     placed: null,     // key of the letter placed this turn
     view: { x: null, y: null, size: 56 },
     detail: false,
@@ -107,7 +108,7 @@ $('#secs').addEventListener('input', (e) => { S.setup.secs = e.target.value; sav
 $('#start').onclick = () => {
   const secs = Math.max(0, Math.min(600, parseInt(S.setup.secs, 10) || 0));
   S.players = S.setup.players.slice(0, S.setup.n).map((p, i) => ({ name: p.name.trim() || 'User' + (i + 1), color: p.color, score: 0 }));
-  Object.assign(S, { phase: 'play', cur: 0, turnNo: 0, turnSecs: secs, turnEnd: secs ? Date.now() + secs * 1000 : null, cells: {}, marks: [], words: [], placed: null, view: { x: null, y: null, size: window.innerWidth < 520 ? 48 : 56 } });
+  Object.assign(S, { phase: 'play', locked: false, cur: 0, turnNo: 0, turnSecs: secs, turnEnd: secs ? Date.now() + secs * 1000 : null, cells: {}, marks: [], words: [], placed: null, view: { x: null, y: null, size: window.innerWidth < 520 ? 48 : 56 } });
   sel = null; markMode = false; markSel = null;
   save(); show();
 };
@@ -175,7 +176,7 @@ function renderBoard() {
     el.textContent = cell.c;
     el.style.setProperty('--c', S.players[cell.p].color);
     pos(el, x, y);
-    el.classList.toggle('mine', key === S.placed);
+    el.classList.toggle('mine', key === S.placed && !S.locked);
     el.classList.toggle('sel', !!sel && key === k(sel.x, sel.y));
   }
   // marks (only animate new ones)
@@ -246,6 +247,7 @@ board.addEventListener('wheel', (e) => { e.preventDefault(); zoom(e.deltaY < 0 ?
 function tapCell([x, y]) {
   if (markMode) return;
   const key = k(x, y), cell = S.cells[key];
+  if (S.locked) { if (!cell) toast('Your letter is locked after marking a word', 'err'); return; }
   if (cell && key !== S.placed) return;       // can only edit this turn's own letter
   sel = { x, y };
   renderBoard(); renderDock(); ensureVisible();
@@ -277,7 +279,7 @@ $('#recenter').onclick = () => {
 
 /* ---- placing letters ---- */
 function placeLetter(ch) {
-  if (!sel) return;
+  if (!sel || S.locked) return;
   const key = k(sel.x, sel.y), ex = S.cells[key];
   if (ex && key !== S.placed) return toast('That box is taken', 'err');
   if (S.placed && S.placed !== key) delete S.cells[S.placed]; // one letter per turn: moving it
@@ -287,7 +289,7 @@ function placeLetter(ch) {
   save(); renderBoard(); renderDock();
 }
 function removeLetter() {
-  if (!S.placed) return;
+  if (!S.placed || S.locked) return;
   delete S.cells[S.placed]; S.placed = null; sel = null;
   save(); renderBoard(); renderDock();
 }
@@ -343,7 +345,7 @@ async function doneMark() {
   floatText('+' + w.length, m.b[0], m.b[1], p.color);
   toast(`${p.name} claimed ${w} (+${w.length})${S.turnEnd ? ' · +5s' : ''}`, 'ok');
   if (S.turnEnd) S.turnEnd += BONUS_SECS * 1000;   // reward: extra time, turn continues
-  markMode = false; markSel = null;
+  S.locked = true; markMode = false; markSel = null;
   save(); renderAll();
 }
 function penalize(msg) {
@@ -355,7 +357,7 @@ function penalize(msg) {
 }
 function nextTurn(silent) {
   S.cur = (S.cur + 1) % S.players.length;
-  S.turnNo++; S.turnEnd = S.turnSecs ? Date.now() + S.turnSecs * 1000 : null;
+  S.turnNo++; S.locked = false; S.turnEnd = S.turnSecs ? Date.now() + S.turnSecs * 1000 : null;
   S.placed = null; sel = null; markMode = false; markSel = null; busy = false;
   save(); renderAll();
   if (!silent) toast(`${cur().name}'s turn`);
@@ -366,6 +368,7 @@ function renderDock() {
   const p = cur(); dock.innerHTML = '';
   const hint = sel ? 'Pick a letter for this box'
     : markMode ? 'Drag left → right or top → bottom'
+    : S.locked ? 'Letter locked · mark more words or end turn'
     : S.placed ? 'Letter placed · mark a word or end turn' : 'Tap an empty box to place a letter';
   dock.append(h('div', { class: 'dtop' }, h('span', { class: 'dot' }),
     h('div', { class: 'grow' }, h('b', {}, `${p.name}'s turn`), h('small', {}, hint)),
