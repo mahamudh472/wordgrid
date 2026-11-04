@@ -6,6 +6,7 @@ const PALETTE = ['#ef6a5b', '#4c8df6', '#3cb97a', '#f2a93b', '#9b6bdc', '#e8588f
 const DICT_URL = 'https://cdn.jsdelivr.net/npm/word-list@4.1.0/words.txt';
 const API_URL = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
 const MIN_LEN = 2;
+const BONUS_SECS = 5;
 
 const $ = (s) => document.querySelector(s);
 function h(tag, props = {}, ...kids) {
@@ -340,8 +341,10 @@ async function doneMark() {
   const p = cur(), m = { a: markSel.a, b: markSel.b, p: S.cur, word: w };
   S.words.push(w); S.marks.push(m); p.score += w.length;
   floatText('+' + w.length, m.b[0], m.b[1], p.color);
-  toast(`${p.name} claimed ${w} (+${w.length})`, 'ok');
-  nextTurn(true);
+  toast(`${p.name} claimed ${w} (+${w.length})${S.turnEnd ? ' · +5s' : ''}`, 'ok');
+  if (S.turnEnd) S.turnEnd += BONUS_SECS * 1000;   // reward: extra time, turn continues
+  markMode = false; markSel = null;
+  save(); renderAll();
 }
 function penalize(msg) {
   const p = cur(), end = markSel.b;
