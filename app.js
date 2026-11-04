@@ -4,6 +4,7 @@
 const KEY = 'wordgrid.v1';
 const PALETTE = ['#ef6a5b', '#4c8df6', '#3cb97a', '#f2a93b', '#9b6bdc', '#e8588f', '#2bb5c4', '#8a9a3b'];
 const DICT_URL = 'https://cdn.jsdelivr.net/npm/word-list@4.1.0/words.txt';
+const COMMON_URL = 'https://cdn.jsdelivr.net/gh/first20hours/google-10000-english@master/google-10000-english-no-swears.txt';
 const API_URL = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
 const MIN_LEN = 2;
 const BONUS_SECS = 5;
@@ -58,6 +59,16 @@ function loadDict() {
     .catch(() => { dictState = 'failed'; dictPromise = null; })
     .finally(badge);
   return dictPromise;
+}
+// Frequency-ordered common words (rank 0 = most common). Used so the bot sticks to words people know.
+let common = null, commonPromise = null;
+function loadCommon() {
+  if (commonPromise) return commonPromise;
+  commonPromise = fetch(COMMON_URL)
+    .then((r) => { if (!r.ok) throw 0; return r.text(); })
+    .then((t) => { common = new Map(t.split(/\s+/).filter(Boolean).map((w, i) => [w, i])); })
+    .catch(() => { commonPromise = null; });
+  return commonPromise;
 }
 async function isWord(word) {
   const w = word.toLowerCase();
@@ -132,6 +143,7 @@ const tiles = new Map(), markEls = [];
 let cursorEl = null, previewEl = null;
 
 function show() {
+  if (S.phase === 'play' && S.players.some((p) => p.bot)) loadCommon();
   $('#setup').hidden = S.phase !== 'setup';
   $('#game').hidden = S.phase !== 'play';
   setTint();
@@ -420,9 +432,9 @@ function renderDock() {
 /* ---- bot ---- */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const LEVELS = {            // min/max word length, how many top placements to pick from, words marked per turn
-  easy:   { min: 3, max: 4,  pool: 999, words: 1 },
-  medium: { min: 3, max: 6,  pool: 6,   words: 2 },
-  hard:   { min: 2, max: 99, pool: 1,   words: 99 },
+  easy:   { min: 3, max: 4,  pool: 999, words: 1, rank: 1500 },
+  medium: { min: 3, max: 6,  pool: 6,   words: 2, rank: 5000 },
+  hard:   { min: 2, max: 99, pool: 1,   words: 99, rank: Infinity },
 };
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -430,6 +442,13 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 // (left→right / top→bottom substrings) that run through the new letter.
 function botFindMove() {
   const lv = LEVELS[S.level] || LEVELS.medium, used = new Set(S.words), cells = S.cells;
+  const known = (w) => {                       // real word, and common enough for this level
+    w = w.toLowerCase();
+    if (!dict.has(w)) return false;
+    if (!common || lv.rank === Infinity) return true;
+    const r = common.get(w);
+    return r !== undefined && r < lv.rank;
+  };
   const empties = new Set(), found = [];
   for (const key of Object.keys(cells)) {
     const [x, y] = key.split(',').map(Number);
@@ -448,7 +467,7 @@ function botFindMove() {
         if (run.length < 2) continue;
         for (let i = 0; i <= ei; i++) for (let j = Math.max(ei, i + lv.min - 1); j < run.length && j - i + 1 <= lv.max; j++) {
           const w = run.slice(i, j + 1);
-          if (!used.has(w) && !words.has(w) && dict.has(w.toLowerCase()))
+          if (!used.has(w) && !words.has(w) && known(w))
             words.set(w, { w, a: [sx + dx * i, sy + dy * i], b: [sx + dx * j, sy + dy * j] });
         }
       }
@@ -481,6 +500,7 @@ async function botTurn() {
     await sleep(900); if (!alive()) return end();
     if (S.placed) return end();                       // resumed mid-turn after a reload
     if (!dict) await loadDict();
+    if (!common) await loadCommon();
     if (!alive()) return end();
     if (!dict) { toast('Bot needs the dictionary to play. Passing', 'err'); await sleep(1500); return end(); }
     const mv = Object.keys(S.cells).length ? botFindMove() : { x: 0, y: 0, L: 'AEIORSTN'[Math.floor(Math.random() * 8)], words: [] };
