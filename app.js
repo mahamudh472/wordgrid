@@ -399,7 +399,7 @@ function renderDock() {
   const hint = isBot() ? 'Thinking…' : sel ? 'Pick a letter for this box'
     : markMode ? 'Drag left → right or top → bottom'
     : S.locked ? 'Letter locked · mark more words or end turn'
-    : S.placed ? 'Letter placed · mark a word or end turn' : 'Tap an empty box to place a letter';
+    : S.placed ? 'Letter placed · mark a word or end turn' : 'Tap an empty box to place a letter (required to end turn)';
   dock.append(h('div', { class: 'dtop' }, h('span', { class: 'dot' }),
     h('div', { class: 'grow' }, h('b', {}, `${p.name}'s turn`), h('small', {}, hint)),
     S.turnEnd ? h('span', { class: 'timer', id: 'timer' }) : null));
@@ -425,7 +425,7 @@ function renderDock() {
   } else {
     dock.append(h('div', { class: 'dbtns' },
       h('button', { class: 'btn accent', onclick: startMark }, 'Mark word'),
-      h('button', { class: 'btn ghost', onclick: () => nextTurn() }, 'End turn')));
+      h('button', { class: 'btn ghost', disabled: S.placed ? null : '', onclick: () => { if (!S.placed) return toast('Place a letter before ending your turn', 'err'); nextTurn(); } }, 'End turn')));
   }
 }
 
@@ -524,7 +524,13 @@ async function botTurn() {
 function tick() {
   if (S.phase !== 'play' || !S.turnEnd) return;
   const left = Math.ceil((S.turnEnd - Date.now()) / 1000);
-  if (left <= 0) { toast(`Time's up! ${cur().name}'s turn ended`, 'err'); return nextTurn(true); }
+  if (left <= 0) {
+    if (!S.placed) {
+      const p = cur(); p.score -= 1;
+      toast(`Time's up! ${p.name} placed no letter · −1 point`, 'err');
+    } else toast(`Time's up! ${cur().name}'s turn ended`, 'err');
+    return nextTurn(true);
+  }
   const t = $('#timer');
   if (t) { t.textContent = left + 's'; t.classList.toggle('low', left <= 5); }
 }
