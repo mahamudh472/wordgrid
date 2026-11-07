@@ -440,6 +440,18 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 // Try every empty box next to a letter with every A–Z; collect unclaimed dictionary words
 // (left→right / top→bottom substrings) that run through the new letter.
+function botRandomMove() {                    // no word found: still place a random letter
+  const keys = Object.keys(S.cells), pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const L = pick([...'AEIORSTNLD']);
+  if (!keys.length) return { x: 0, y: 0, L, words: [] };
+  const empties = new Set();
+  for (const key of keys) {
+    const [x, y] = key.split(',').map(Number);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!S.cells[k(x + dx, y + dy)]) empties.add(k(x + dx, y + dy));
+  }
+  const [x, y] = pick([...empties]).split(',').map(Number);
+  return { x, y, L, words: [] };
+}
 function botFindMove() {
   const lv = LEVELS[S.level] || LEVELS.medium, used = new Set(S.words), cells = S.cells;
   const known = (w) => {                       // real word, and common enough for this level
@@ -502,9 +514,7 @@ async function botTurn() {
     if (!dict) await loadDict();
     if (!common) await loadCommon();
     if (!alive()) return end();
-    if (!dict) { toast('Bot needs the dictionary to play. Passing', 'err'); await sleep(1500); return end(); }
-    const mv = Object.keys(S.cells).length ? botFindMove() : { x: 0, y: 0, L: 'AEIORSTN'[Math.floor(Math.random() * 8)], words: [] };
-    if (!mv) { await sleep(500); return end(`${cur().name} couldn't find a word and passed`); }
+    const mv = (dict && Object.keys(S.cells).length ? botFindMove() : null) || botRandomMove();
     panIntoView(mv.x, mv.y);
     await sleep(500); if (!alive()) return end();
     const key = k(mv.x, mv.y);
