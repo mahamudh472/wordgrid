@@ -27,8 +27,9 @@ function h(tag, props = {}, ...kids) {
 function fresh() {
   return {
     phase: 'setup',
-    setup: { mode: 'multi', level: 'medium', bot: { name: 'Bot', color: PALETTE[1] }, n: 2, secs: 30, players: PALETTE.map((c, i) => ({ name: 'User' + (i + 1), color: c })) },
+    setup: { mode: 'multi', level: 'medium', bot: { name: 'Bot', color: PALETTE[1] }, n: 2, secs: 30, rows: '', cols: '', players: PALETTE.map((c, i) => ({ name: 'User' + (i + 1), color: c })) },
     players: [], cur: 0, turnNo: 0, turnSecs: 0, turnEnd: null,
+    rows: null, cols: null, // grid limits (null = unlimited)
     cells: {},        // "x,y" -> {c:'A', p:playerIndex}
     marks: [],        // {a:[x,y], b:[x,y], p, word}
     words: [],        // claimed words (uppercase)
@@ -89,6 +90,8 @@ function badge() {
 /* ---------------- helpers ---------------- */
 const k = (x, y) => x + ',' + y;
 const cur = () => S.players[S.cur];
+const bounded = () => !!(S.rows && S.cols);
+const inBounds = (x, y) => !bounded() || (x >= 0 && y >= 0 && x < S.cols && y < S.rows);
 const isBot = () => S.phase === 'play' && !!(cur() && cur().bot);
 let toastT;
 function toast(msg, type = '') {
@@ -106,6 +109,7 @@ function renderSetup() {
   $('#playersRow').hidden = bot; $('#levelRow').hidden = !bot;
   $('#count').textContent = S.setup.n;
   $('#secs').value = S.setup.secs ?? 30;
+  $('#rows').value = S.setup.rows ?? ''; $('#cols').value = S.setup.cols ?? '';
   const list = $('#plist'); list.innerHTML = '';
   const count = bot ? 2 : S.setup.n;
   for (let i = 0; i < count; i++) {
@@ -125,20 +129,27 @@ document.querySelectorAll('#lvlSeg button').forEach((b) => (b.onclick = () => { 
 $('#plus').onclick = () => { if (S.setup.n < 8) { S.setup.n++; save(); renderSetup(); } };
 $('#minus').onclick = () => { if (S.setup.n > 2) { S.setup.n--; save(); renderSetup(); } };
 $('#secs').addEventListener('input', (e) => { S.setup.secs = e.target.value; save(); });
+$('#rows').addEventListener('input', (e) => { S.setup.rows = e.target.value; save(); });
+$('#cols').addEventListener('input', (e) => { S.setup.cols = e.target.value; save(); });
 $('#start').onclick = () => {
+  const lim = (v) => { const n = parseInt(v, 10); return n >= 2 ? Math.min(50, n) : null; };
+  let rows = lim(S.setup.rows), cols = lim(S.setup.cols);
+  if (rows || cols) { rows = rows || cols; cols = cols || rows; }   // one value given: square grid
   const secs = Math.max(0, Math.min(600, parseInt(S.setup.secs, 10) || 0));
   if (S.setup.mode === 'bot') {
     const me = S.setup.players[0], bt = S.setup.bot;
     S.players = [{ name: me.name.trim() || 'User1', color: me.color, score: 0 }, { name: bt.name.trim() || 'Bot', color: bt.color, score: 0, bot: true }];
   } else S.players = S.setup.players.slice(0, S.setup.n).map((p, i) => ({ name: p.name.trim() || 'User' + (i + 1), color: p.color, score: 0 }));
   S.level = S.setup.level;
-  Object.assign(S, { phase: 'play', locked: false, cur: 0, turnNo: 0, turnSecs: secs, turnEnd: secs ? Date.now() + secs * 1000 : null, cells: {}, marks: [], words: [], placed: null, view: { x: null, y: null, size: window.innerWidth < 520 ? 48 : 56 } });
+  Object.assign(S, { phase: 'play', locked: false, cur: 0, turnNo: 0, rows, cols, turnSecs: secs, turnEnd: secs ? Date.now() + secs * 1000 : null, cells: {}, marks: [], words: [], placed: null, view: { x: null, y: null, size: window.innerWidth < 520 ? 48 : 56 } });
   sel = null; markMode = false; markSel = null;
   save(); show();
 };
 
 /* ================= GAME ================= */
 const board = $('#board'), world = $('#world'), dock = $('#dock');
+const field = h('div', { class: 'field', hidden: '' });
+world.append(field);
 const tiles = new Map(), markEls = [];
 let cursorEl = null, previewEl = null;
 
@@ -152,7 +163,10 @@ function show() {
 }
 function initView() {
   const v = S.view;
-  if (v.x == null) { v.x = board.clientWidth / 2 - v.size / 2; v.y = (board.clientHeight - 120) / 2 - v.size / 2; }
+  if (v.x == null) {
+    const cx = bounded() ? S.cols / 2 : .5, cy = bounded() ? S.rows / 2 : .5;
+    v.x = board.clientWidth / 2 - cx * v.size; v.y = (board.clientHeight - 120) / 2 - cy * v.size;
+  }
 }
 
 function renderAll() { setTint(); renderScore(); renderBoard(); renderDock(); applyView(); }
@@ -181,6 +195,9 @@ function applyView() {
   board.style.backgroundSize = `${v.size}px ${v.size}px`;
   board.style.backgroundPosition = `${v.x}px ${v.y}px`;
   board.style.setProperty('--s', v.size + 'px');
+  board.classList.toggle('bounded', bounded());
+  field.hidden = !bounded();
+  if (bounded()) { field.style.width = S.cols * v.size + 'px'; field.style.height = S.rows * v.size + 'px'; }
 }
 const pos = (el, x, y) => { el.style.left = x * S.view.size + 'px'; el.style.top = y * S.view.size + 'px'; };
 
@@ -273,6 +290,7 @@ function tapCell([x, y]) {
   if (markMode || isBot()) return;
   const key = k(x, y), cell = S.cells[key];
   if (S.locked) { if (!cell) toast('Your letter is locked after marking a word', 'err'); return; }
+  if (!inBounds(x, y)) return;
   if (cell && key !== S.placed) return;       // can only edit this turn's own letter
   sel = { x, y };
   renderBoard(); renderDock(); ensureVisible();
@@ -296,7 +314,8 @@ $('#zoomOut').onclick = () => zoom(1 / 1.2);
 $('#recenter').onclick = () => {
   const keys = Object.keys(S.cells), v = S.view;
   let cx = 0, cy = 0;
-  if (keys.length) { keys.forEach((q) => { const [x, y] = q.split(',').map(Number); cx += x; cy += y; }); cx /= keys.length; cy /= keys.length; }
+  if (bounded()) { cx = S.cols / 2 - .5; cy = S.rows / 2 - .5; }
+  else if (keys.length) { keys.forEach((q) => { const [x, y] = q.split(',').map(Number); cx += x; cy += y; }); cx /= keys.length; cy /= keys.length; }
   v.x = board.clientWidth / 2 - (cx + .5) * v.size; v.y = (board.clientHeight - 120) / 2 - (cy + .5) * v.size;
   world.style.transition = 'transform .4s cubic-bezier(.2,.8,.2,1)'; applyView();
   setTimeout(() => (world.style.transition = ''), 450); save();
@@ -306,6 +325,7 @@ $('#recenter').onclick = () => {
 function placeLetter(ch) {
   if (!sel || S.locked) return;
   const key = k(sel.x, sel.y), ex = S.cells[key];
+  if (!inBounds(sel.x, sel.y)) return;
   if (ex && key !== S.placed) return toast('That box is taken', 'err');
   if (S.placed && S.placed !== key) delete S.cells[S.placed]; // one letter per turn: moving it
   S.cells[key] = { c: ch.toUpperCase(), p: S.cur };
@@ -320,7 +340,9 @@ function removeLetter() {
 }
 function moveSel(dx, dy) {
   if (!sel) return;
-  sel = { x: sel.x + dx, y: sel.y + dy };
+  const n = { x: sel.x + dx, y: sel.y + dy };
+  if (!inBounds(n.x, n.y)) return;
+  sel = n;
   const key = k(sel.x, sel.y);
   if (S.cells[key] && key !== S.placed) return moveSel(dx, dy);
   renderBoard(); renderDock(); ensureVisible();
@@ -443,12 +465,13 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 function botRandomMove() {                    // no word found: still place a random letter
   const keys = Object.keys(S.cells), pick = (a) => a[Math.floor(Math.random() * a.length)];
   const L = pick([...'AEIORSTNLD']);
-  if (!keys.length) return { x: 0, y: 0, L, words: [] };
+  if (!keys.length) return bounded() ? { x: S.cols >> 1, y: S.rows >> 1, L, words: [] } : { x: 0, y: 0, L, words: [] };
   const empties = new Set();
   for (const key of keys) {
     const [x, y] = key.split(',').map(Number);
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!S.cells[k(x + dx, y + dy)]) empties.add(k(x + dx, y + dy));
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!S.cells[k(x + dx, y + dy)] && inBounds(x + dx, y + dy)) empties.add(k(x + dx, y + dy));
   }
+  if (!empties.size) return null;
   const [x, y] = pick([...empties]).split(',').map(Number);
   return { x, y, L, words: [] };
 }
@@ -464,7 +487,7 @@ function botFindMove() {
   const empties = new Set(), found = [];
   for (const key of Object.keys(cells)) {
     const [x, y] = key.split(',').map(Number);
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!cells[k(x + dx, y + dy)]) empties.add(k(x + dx, y + dy));
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!cells[k(x + dx, y + dy)] && inBounds(x + dx, y + dy)) empties.add(k(x + dx, y + dy));
   }
   for (const ek of empties) {
     const [ex, ey] = ek.split(',').map(Number);
@@ -515,6 +538,7 @@ async function botTurn() {
     if (!common) await loadCommon();
     if (!alive()) return end();
     const mv = (dict && Object.keys(S.cells).length ? botFindMove() : null) || botRandomMove();
+    if (!mv) return end();                            // board full
     panIntoView(mv.x, mv.y);
     await sleep(500); if (!alive()) return end();
     const key = k(mv.x, mv.y);
@@ -561,7 +585,7 @@ $('#newGame').onclick = () => {
   const setup = S.setup; S = fresh(); S.setup = setup;
   sel = null; markMode = false; markSel = null; lastScores = [];
   tiles.forEach((t) => t.remove()); tiles.clear(); markEls.forEach((m) => m.remove()); markEls.length = 0;
-  world.innerHTML = ''; cursorEl = previewEl = null;
+  world.innerHTML = ''; world.append(field); cursorEl = previewEl = null;
   closeSheet(); save(); show();
 };
 

@@ -97,6 +97,14 @@ button:disabled { opacity: .45; cursor: default; }
     linear-gradient(to right, var(--line) 1px, transparent 1px),
     linear-gradient(to bottom, var(--line) 1px, transparent 1px);
 }
+.board.bounded { background-image: none; background-color: color-mix(in srgb, var(--line) 35%, transparent); }
+.field {
+  position: absolute; left: 0; top: 0; box-sizing: content-box; margin: -2px; border: 2px solid var(--ink); border-radius: 4px;
+  background-color: var(--bg, #f6f5f1); pointer-events: none;
+  background-image: linear-gradient(to right, var(--line) 1px, transparent 1px), linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: var(--s) var(--s);
+}
+.field[hidden] { display: none; }
 .board.dragging { cursor: grabbing; }
 .board.marking { cursor: crosshair; }
 .world { position: absolute; left: 0; top: 0; will-change: transform; }
